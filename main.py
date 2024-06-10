@@ -11,7 +11,7 @@ def visualize(target):
     vis.get_render_option().background_color = [0,0,1]
     vis.add_geometry(target)
     
-    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=100.0, origin=[0,0,0])
+    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=10.0, origin=[0,0,0])
     vis.add_geometry(axis)
     
     vis.run()
@@ -83,8 +83,10 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     inter_points_xy = points_xy.copy()
     inter_points_z = points_z.copy()
     
-    for x in [x_range_min, x_range_max, np.max(points_xy[:, 0])]:
-        for y in [y_range_min, y_range_max, np.max(points_xy[:, 1])]:
+    for x in [x_range_min, x_range_max, np.max(points_xy[:, 0]), np.max(points_xy[:, 0]/5), np.max(points_xy[:, 0]*2/5), np.max(points_xy[:, 0]*3/5), np.max(points_xy[:, 0]*4/5)]:
+        for y in [y_range_min, y_range_max, np.max(points_xy[:, 1]), np.max(points_xy[:, 1]/5), np.max(points_xy[:, 1]*2/5), np.max(points_xy[:, 1]*3/5), np.max(points_xy[:, 1]*4/5)]:
+    # for x in [x_range_min, x_range_max, np.max(points_xy[:, 0]), np.max(points_xy[:, 0]/10), np.max(points_xy[:, 0]*2/10), np.max(points_xy[:, 0]*3/10), np.max(points_xy[:, 0]*4/10), np.max(points_xy[:, 0]*5/10), np.max(points_xy[:, 0]*6/10), np.max(points_xy[:, 0]*7/10), np.max(points_xy[:, 0]*8/10), np.max(points_xy[:, 0]*9/10)]:
+    #     for y in [y_range_min, y_range_max, np.max(points_xy[:, 1]), np.max(points_xy[:, 1]/10), np.max(points_xy[:, 1]*2/10), np.max(points_xy[:, 1]*3/10), np.max(points_xy[:, 1]*4/10), np.max(points_xy[:, 1]*5/10), np.max(points_xy[:, 1]*6/10), np.max(points_xy[:, 1]*7/10), np.max(points_xy[:, 1]*8/10), np.max(points_xy[:, 1]*9/10)]:
             inter_points_xy = np.append(inter_points_xy, np.array([[x, y]]), axis=0)
             # 最近傍の点を検索
             nearest_point = pcd_tree.query([x, y], k=1)
@@ -100,7 +102,6 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     
     # 拡張する点を計算
     new_points = []
-    # interpolator = CloughTocher2DInterpolator(inter_points_xy, inter_points_z)
     interpolator = LinearNDInterpolator(inter_points_xy, inter_points_z)
     # interpolator = my_CT(inter_points_xy, inter_points_z)
     
@@ -146,6 +147,40 @@ def extend_point_cloud_voxel(pcd:o3d.geometry.PointCloud, x_range_min:float=-50,
     extended_pcd.points = o3d.utility.Vector3dVector(extended_points)
     return extended_pcd
    
+   
+def create_wave_slope_point_cloud(width, length, amplitude, frequency, resolution=100):
+    """
+    遠ざかるにつれて下がって上がるような勾配のある平面のポイントクラウドを生成する関数。
+
+    Parameters:
+    - width: 平面の幅
+    - length: 平面の長さ
+    - amplitude: 波の振幅
+    - frequency: 波の周波数
+    - resolution: ポイントクラウドの解像度（デフォルトは100）
+
+    Returns:
+    - point_cloud: Open3Dのポイントクラウドオブジェクト
+    """
+    # x, y座標の範囲
+    x_range = np.linspace(-width / 2, width / 2, 1)
+    y_range = np.linspace(-length / 2, length / 2, resolution)
+
+    # グリッドを作成
+    x_grid, y_grid = np.meshgrid(x_range, y_range)
+    # サイン波を適用してz座標を計算
+    z_grid = amplitude * np.sin(frequency * y_grid)
+
+    # 点群を作成
+    points = np.vstack((x_grid.flatten(), y_grid.flatten(), z_grid.flatten())).T
+    point_cloud = o3d.geometry.PointCloud()
+    point_cloud.points = o3d.utility.Vector3dVector(points)
+
+    return point_cloud
+   
+# pcd = create_wave_slope_point_cloud(20, 200, 2, 0.2, resolution=100)
+# visualize(pcd)
+
 pcd = generate_point_cloud((-10, 10), (-1, 250), (-0., 0.), 1000, slope=0.5)
 # visualize(pcd)
 
@@ -155,4 +190,32 @@ extended_pcd = extend_point_cloud(pcd)
 
 visualize(extended_pcd)
 
+
+# meshへ変換
+extended_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+extended_pcd.orient_normals_to_align_with_direction()
+# ball pivotingでmesh化
+redii = [0.1, 0.2, 0.5, 1, 2, 5, 10]
+mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(extended_pcd, o3d.utility.DoubleVector(redii))
+visualize(mesh)
+
+
+# スムージング
+smooth_mesh = mesh.filter_smooth_laplacian(number_of_iterations=50)
+smooth_mesh.compute_vertex_normals()
+smooth_mesh = smooth_mesh.subdivide_midpoint(number_of_iterations=1)
+smooth_mesh = smooth_mesh.filter_smooth_simple(number_of_iterations=1)
+visualize(smooth_mesh)
+
+
+# meshの穴埋め
+v = np.asarray(mesh.vertices)
+f = np.asarray(mesh.triangles)
+
+vw, fw = pcu.make_mesh_watertight(v, f)
+cloud = o3d.geometry.PointCloud()
+cloud.points = o3d.utility.Vector3dVector(vw)
+mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd=cloud, alpha=1.0)
+visualize(mesh)
 # デプスマップを生成して表示
+
