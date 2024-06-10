@@ -2,6 +2,7 @@ import open3d as o3d
 import numpy as np
 import point_cloud_utils as pcu
 from scipy.spatial import KDTree
+from scipy.interpolate import griddata, CloughTocher2DInterpolator, LinearNDInterpolator,RBFInterpolator
 
 def visualize(target):
     vis = o3d.visualization.Visualizer()
@@ -43,7 +44,8 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     # 拡張座標を計算
     new_points = []
     for x in x_range:
-        for y in y_range:            
+        for y in y_range:       
+            # ボクセル化とgriddataを組み合わせる！     
             distance, index = pcd_tree.query([x, y], k=1)
             nearest_point = points[index]
             new_points.append([x, y, nearest_point[2]])
@@ -53,9 +55,80 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     extended_pcd.points = o3d.utility.Vector3dVector(extended_points)
     return extended_pcd
 
+def expand_point_cloud(point_cloud, space_size, resolution=0.1):
+   grid_x, grid_y = np.meshgrid(
+       np.arange(0, space_size, resolution),
+       np.arange(0, space_size, resolution)
+   )
+   
+   points = np.asarray(point_cloud.points)
+   point_datas = points[:, :2]
+   values = points[:, 2]
+   
+   grid_z = griddata(point_datas, values, (grid_x, grid_y), method='nearest')
+#    grid_z = griddata(point_datas, values, (grid_x, grid_y), method='cubic')
+   
+   #元のポイントクラウドへgridデータを追加
+   new_points = []
+   for (x_row,y_row) in zip(grid_x, grid_y):
+       for (x,y) in zip(x_row, y_row):
+            new_points.append([x, y, grid_z[int(y)][int(x)]])
+   
+   
+   expanded_points = np.vstack((points, np.array(new_points)))
+   new_point_cloud = o3d.geometry.PointCloud()
+   new_point_cloud.points = o3d.utility.Vector3dVector(expanded_points)
+   return new_point_cloud
+   
+def x(point_cloud, space_size, resolution=0.1) -> o3d.geometry.PointCloud:
+    points = np.asarray(point_cloud.points)
+    points_2d = points[:, :2]
+    values = points[:, 2]
+    
+    points_2d = np.append(points_2d, np.array([[300, 300]]), axis=0)
+    points_2d = np.append(points_2d, np.array([[300, 0]]), axis=0)
+    points_2d = np.append(points_2d, np.array([[-300, 300]]), axis=0)
+    points_2d = np.append(points_2d, np.array([[-300, 0]]), axis=0)
+    
+    values = np.append(values, 0.5*300)
+    values = np.append(values, 0)
+    values = np.append(values, 0.5*300)
+    values = np.append(values, 0)
+    
+    # interpolator = CloughTocher2DInterpolator(points_2d, values)
+    interpolator = LinearNDInterpolator(points_2d, values)
+    # interpolator = RBFInterpolator(points[:, :2], values, kernel='cubic')
+    
+    grid_x, grid_y = np.meshgrid(
+       np.arange(0, space_size, resolution),
+       np.arange(0, space_size, resolution)
+    )
+    
+
+    new_points = []
+    for (x_row,y_row) in zip(grid_x, grid_y):
+        for (x,y) in zip(x_row, y_row):
+            new_points.append([x, y, interpolator(x, y)])
+            
+    expanded_points = np.vstack((points, np.array(new_points)))
+    new_point_cloud = o3d.geometry.PointCloud()
+    new_point_cloud.points = o3d.utility.Vector3dVector(expanded_points)
+    return new_point_cloud
+
+
 pcd = generate_point_cloud((-10, 10), (-1, 250), (-0.1, 0.1), 1000, slope=0.5)
 # visualize(pcd)
 
 # pcdを拡張
-extended_pcd = extend_point_cloud(pcd)
-visualize(extended_pcd)
+# extended_pcd = extend_point_cloud(pcd)
+# extended_pcd = expand_point_cloud(pcd, 500, resolution=1)
+a = x(pcd, 200, resolution=1)
+
+
+# visualize(extended_pcd)
+visualize(a)
+
+
+
+
+# デプスマップを生成して表示
