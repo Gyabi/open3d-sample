@@ -38,6 +38,44 @@ def generate_point_cloud_sin_slope(x_range:tuple, y_range:tuple, z_range:tuple, 
     
     return point_cloud
 
+def my_CT(xy, z):
+    """CT interpolator + nearest-neighbor extrapolation.
+
+    Parameters
+    ----------
+    xy : ndarray, shape (npoints, ndim)
+        Coordinates of data points
+    z : ndarray, shape (npoints)
+        Values at data points
+
+    Returns
+    -------
+    func : callable
+        A callable object which mirrors the CT behavior,
+        with an additional neareast-neighbor extrapolation
+        outside of the data range.
+    """
+    x = xy[:, 0]
+    y = xy[:, 1]
+    f = CloughTocher2DInterpolator(xy, z)
+
+    # this inner function will be returned to a user
+    def new_f(xx, yy):
+        # evaluate the CT interpolator. Out-of-bounds values are nan.
+        zz = f(xx, yy)
+        nans = np.isnan(zz)
+
+        if nans.any():
+            # for each nan point, find its nearest neighbor
+            inds = np.argmin(
+                (x[:, None] - xx[nans])**2 +
+                (y[:, None] - yy[nans])**2
+                , axis=0)
+            # ... and use its value
+            zz[nans] = z[inds]
+        return zz
+
+    return new_f
 
 def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_range_max:float=50, y_range_min:float=-1, y_range_max:float=300, grid_size:float=1) -> o3d.geometry.PointCloud:
     points = np.asarray(pcd.points)
@@ -47,19 +85,19 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     # z座標抽出
     points_z = points[:, 2]
     
-    # 最近傍検索用のKDTree作成
-    pcd_tree = KDTree(points_xy)
+    # # 最近傍検索用のKDTree作成
+    # pcd_tree = KDTree(points_xy)
     
-    # 四方の点を計算
-    for x in [x_range_min, x_range_max]:
-        for y in [y_range_min, y_range_max]:
-            points_xy = np.append(points_xy, np.array([[x, y]]), axis=0)
-            # 最近傍の点を検索
-            nearest_point = pcd_tree.query([x, y], k=1)
-            # 最近傍の点のz座標を取得
-            nearest_point_z = points_z[nearest_point[1]]
-            print(nearest_point_z)
-            points_z = np.append(points_z, nearest_point_z)
+    # # 四方の点を計算
+    # for x in [x_range_min, x_range_max]:
+    #     for y in [y_range_min, y_range_max]:
+    #         points_xy = np.append(points_xy, np.array([[x, y]]), axis=0)
+    #         # 最近傍の点を検索
+    #         nearest_point = pcd_tree.query([x, y], k=1)
+    #         # 最近傍の点のz座標を取得
+    #         nearest_point_z = points_z[nearest_point[1]]
+    #         print(nearest_point_z)
+    #         points_z = np.append(points_z, nearest_point_z)
     
     # meshgrid作成
     grid_x, grid_y = np.meshgrid(
@@ -70,7 +108,8 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     # 拡張する点を計算
     new_points = []
     # interpolator = CloughTocher2DInterpolator(points_xy, points_z)
-    interpolator = LinearNDInterpolator(points_xy, points_z)
+    # interpolator = LinearNDInterpolator(points_xy, points_z)
+    interpolator = my_CT(points_xy, points_z)
     
     for (x_row, y_row) in zip(grid_x, grid_y):
         for (x, y) in zip(x_row, y_row):
