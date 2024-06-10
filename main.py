@@ -3,6 +3,7 @@ import numpy as np
 import point_cloud_utils as pcu
 from scipy.spatial import KDTree
 from scipy.interpolate import griddata, CloughTocher2DInterpolator, LinearNDInterpolator,RBFInterpolator
+import copy
 
 def visualize(target):
     vis = o3d.visualization.Visualizer()
@@ -20,17 +21,6 @@ def generate_point_cloud(x_range:tuple, y_range:tuple, z_range:tuple, num_points
     x = np.random.uniform(x_range[0], x_range[1], num_points)
     y = np.random.uniform(y_range[0], y_range[1], num_points)
     z = np.random.uniform(z_range[0], z_range[1], num_points) + slope * y
-    
-    points = np.vstack((x, y, z)).T
-    point_cloud = o3d.geometry.PointCloud()
-    point_cloud.points = o3d.utility.Vector3dVector(points)
-    
-    return point_cloud
-
-def generate_point_cloud_sin_slope(x_range:tuple, y_range:tuple, z_range:tuple, num_points:int, slope:float=0) -> o3d.geometry.PointCloud:
-    x = np.random.uniform(x_range[0], x_range[1], num_points)
-    y = np.random.uniform(y_range[0], y_range[1], num_points)
-    z = np.random.uniform(z_range[0], z_range[1], num_points) + slope * np.sin(y)
     
     points = np.vstack((x, y, z)).T
     point_cloud = o3d.geometry.PointCloud()
@@ -90,15 +80,17 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     pcd_tree = KDTree(points_xy)
     
     # 補助用の点を計算
-    for x in [x_range_min, x_range_max]:
-        for y in [y_range_min, y_range_max]:
-            points_xy = np.append(points_xy, np.array([[x, y]]), axis=0)
+    inter_points_xy = points_xy.copy()
+    inter_points_z = points_z.copy()
+    
+    for x in [x_range_min, x_range_max, np.max(points_xy[:, 0])]:
+        for y in [y_range_min, y_range_max, np.max(points_xy[:, 1])]:
+            inter_points_xy = np.append(inter_points_xy, np.array([[x, y]]), axis=0)
             # 最近傍の点を検索
             nearest_point = pcd_tree.query([x, y], k=1)
             # 最近傍の点のz座標を取得
             nearest_point_z = points_z[nearest_point[1]]
-            print(nearest_point_z)
-            points_z = np.append(points_z, nearest_point_z)
+            inter_points_z = np.append(inter_points_z, nearest_point_z)
     
     # meshgrid作成
     grid_x, grid_y = np.meshgrid(
@@ -108,9 +100,9 @@ def extend_point_cloud(pcd:o3d.geometry.PointCloud, x_range_min:float=-50, x_ran
     
     # 拡張する点を計算
     new_points = []
-    # interpolator = CloughTocher2DInterpolator(points_xy, points_z)
-    interpolator = LinearNDInterpolator(points_xy, points_z)
-    # interpolator = my_CT(points_xy, points_z)
+    # interpolator = CloughTocher2DInterpolator(inter_points_xy, inter_points_z)
+    interpolator = LinearNDInterpolator(inter_points_xy, inter_points_z)
+    # interpolator = my_CT(inter_points_xy, inter_points_z)
     
     for (x_row, y_row) in zip(grid_x, grid_y):
         for (x, y) in zip(x_row, y_row):
@@ -154,8 +146,7 @@ def extend_point_cloud_voxel(pcd:o3d.geometry.PointCloud, x_range_min:float=-50,
     extended_pcd.points = o3d.utility.Vector3dVector(extended_points)
     return extended_pcd
    
-# pcd = generate_point_cloud_sin_slope((-10, 10), (-1, 250), (-0.1, 0.1), 1000, slope=0.5)
-pcd = generate_point_cloud((-10, 10), (-1, 250), (-0.1, 0.1), 1000, slope=0.5)
+pcd = generate_point_cloud((-10, 10), (-1, 250), (-0., 0.), 1000, slope=0.5)
 # visualize(pcd)
 
 # pcdを拡張
