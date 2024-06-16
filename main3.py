@@ -255,11 +255,13 @@ def rotate_vector_around_axis(vector: np.ndarray, axis_str: str, angle_degrees: 
     return rotated_vector
 
 def calc_pinhole_raycast(mesh):
-    h_fov = 60
+    # h_fov = 60
+    h_fov = 18
     width = 640
     height = 480
     
-    tilt = 30
+    # tilt = 22.5
+    tilt = 4
     
     center = rotate_vector_around_axis([0.,1.,0.], 'x', -tilt)
     eye = [0.,0.,0.]
@@ -284,15 +286,15 @@ def calc_pinhole_raycast(mesh):
     result = scene.cast_rays(rays)
     
     hit = result["t_hit"].isfinite()
-    points = rays[hit][:,:3] + rays[hit][:,3:]*result["t_hit"][hit].reshape((-1,1))
+    points = rays[hit][:,:3] + rays[hit][:,3:]*result["t_hit"][hit].reshape((-1,1))    
     pcd = o3d.t.geometry.PointCloud(points)
     axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=10.0, origin=[0,0,0])
 
     o3d.visualization.draw_geometries([pcd.to_legacy(), mesh, axis])
 
 # main2を踏襲してmeshを生成する
-pcd = generate_point_cloud((-1,1), (-1, 250), (-5, -5), 1000, 0)
-# pcd = generate_point_cloud((1,1), (-1, 250), (-5, -5), 1000, 0.5)
+# pcd = generate_point_cloud((-1,1), (-1, 250), (-5, -5), 1000, 0)
+pcd = generate_point_cloud((1,1), (-1, 250), (-10, -10), 1000, 0.01)
     
 # 点群データを指向基準で拡張
 grid_points = extend_points(pcd)
@@ -305,3 +307,5 @@ mesh = convert_mesh(grid_points)
 calc_pinhole_raycast(mesh)
 
 # 結果を3d表示する
+
+# ★もし平面にrayしていて、hitしたポイントの使い方を逆向きに使っていたら。。。？
