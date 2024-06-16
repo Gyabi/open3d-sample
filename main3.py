@@ -6,6 +6,7 @@ from scipy.spatial import KDTree
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
 from matplotlib.widgets import Button
+import math
 
 def create_wave_slope_point_cloud(width, length, amplitude, frequency, resolution=100):
     """
@@ -116,7 +117,7 @@ def rotate_pcd_z(pcd:o3d.geometry.PointCloud, angle:float) -> o3d.geometry.Point
     pcd.points = o3d.utility.Vector3dVector(mesh.vertices)
     return pcd
     
-def extend_points(pcd:o3d.geometry.PointCloud, extend_distance_y:float=1000, extend_distance_x:float=100) -> np.ndarray:
+def extend_points(pcd:o3d.geometry.PointCloud, extend_distance_y:float=1000, extend_distance_x:float=1000) -> np.ndarray:
     """_summary_
 
     Args:
@@ -155,7 +156,7 @@ def extend_points(pcd:o3d.geometry.PointCloud, extend_distance_y:float=1000, ext
     # 一度可視化
     p = o3d.geometry.PointCloud()
     p.points = o3d.utility.Vector3dVector(points)
-    visualize(p)
+    # visualize(p)
     
     # 垂直方向の拡張(1m単位で拡張していく)
     # 計算用にpointsをコピー
@@ -169,7 +170,7 @@ def extend_points(pcd:o3d.geometry.PointCloud, extend_distance_y:float=1000, ext
     # points_copyを逆向きにループ
     for p in points_copy:
         row = []
-        for x in range(-extend_distance_x, extend_distance_x, 1):
+        for x in range(-extend_distance_x, extend_distance_x, 100):
             row.append([x, p[1], p[2]])
         output_points.append(row)
     
@@ -182,7 +183,7 @@ def extend_points(pcd:o3d.geometry.PointCloud, extend_distance_y:float=1000, ext
     output.points = o3d.utility.Vector3dVector(output_points.reshape(-1, 3))
     output = rotate_pcd_z(output, -(-angle+90))
     
-    visualize(output)
+    # visualize(output)
     
     output_points = np.asarray(output.points).reshape(output_points_shape)
     print(output_points_shape)
@@ -220,55 +221,87 @@ def convert_mesh(grid_points:np.ndarray):
     mesh.compute_vertex_normals()
     return mesh
 
-def execute():
-    # 点群データ作成(GNSS座標を直交平面にして、さらにカメラのローカル座標系に変換⇒カメラの角度を計算⇒raycast計算、交点内なら1000mの距離になるようにする⇒座標をjsonように変換）
-    pcd = generate_point_cloud((-1,1), (-1, 250), (0, 0), 1000, 0.5)
-    pcd = create_wave_slope_point_cloud(20, 200, 2, 0.2, resolution=100)
+def rotate_vector_around_axis(vector: np.ndarray, axis_str: str, angle_degrees: float) -> np.ndarray:
+    """
+    Rotate a vector around an axis by a specified angle in degrees.
 
-    # visualize(pcd)
-    # ★この時点で原点にカメラ、光軸方向がY軸になっている前提
-    # pcdをZ軸周り45度回転させる    
-    pcd = rotate_pcd_z(pcd, 45)
-    visualize(pcd)
+    Parameters:
+    - vector: The vector to rotate.
+    - axis_str: The axis around which to rotate the vector specified as 'x', 'y', or 'z'.
+    - angle_degrees: The angle in degrees by which to rotate the vector.
+
+    Returns:
+    - rotated_vector: The vector after rotation.
+    """
+    axis_dict = {'x': np.array([1, 0, 0]),
+                 'y': np.array([0, 1, 0]),
+                 'z': np.array([0, 0, 1])}
     
-    # print(np.asarray(pcd.points).shape)
+    axis = axis_dict.get(axis_str.lower(), np.array([1, 0, 0]))
     
-    # ボクセルダウンサンプリング
-    # downpcd_voxel = pcd.voxel_down_sample(voxel_size=0.1)
-    # visualize(downpcd_voxel)
-    # print(np.asarray(downpcd_voxel.points).shape)
+    angle_radians = np.radians(angle_degrees)
+    rotation_matrix = np.array([[np.cos(angle_radians) + axis[0]**2 * (1 - np.cos(angle_radians)),
+                                 axis[0] * axis[1] * (1 - np.cos(angle_radians)) - axis[2] * np.sin(angle_radians),
+                                 axis[0] * axis[2] * (1 - np.cos(angle_radians)) + axis[1] * np.sin(angle_radians)],
+                                [axis[1] * axis[0] * (1 - np.cos(angle_radians)) + axis[2] * np.sin(angle_radians),
+                                 np.cos(angle_radians) + axis[1]**2 * (1 - np.cos(angle_radians)),
+                                 axis[1] * axis[2] * (1 - np.cos(angle_radians)) - axis[0] * np.sin(angle_radians)],
+                                [axis[2] * axis[0] * (1 - np.cos(angle_radians)) - axis[1] * np.sin(angle_radians),
+                                 axis[2] * axis[1] * (1 - np.cos(angle_radians)) + axis[0] * np.sin(angle_radians),
+                                 np.cos(angle_radians) + axis[2]**2 * (1 - np.cos(angle_radians))]])
     
+    rotated_vector = np.dot(rotation_matrix, vector)
     
-    # 点群データを指向基準で拡張
-    grid_points = extend_points(pcd)
-        
-    # グリッド点群からメッシュ作成
-    mesh = convert_mesh(grid_points)
-    visualize(mesh)
+    return rotated_vector
+
+def calc_pinhole_raycast(mesh):
+    h_fov = 60
+    width = 640
+    height = 480
     
-    # メッシュに対してraycastを照射
+    tilt = 30
     
-    # 交点を保存
+    center = rotate_vector_around_axis([0.,1.,0.], 'x', -tilt)
+    eye = [0.,0.,0.]
+    up = rotate_vector_around_axis([0.,0.,1.], 'x', -tilt)
     
+    rays = o3d.t.geometry.RaycastingScene.create_rays_pinhole(
+        fov_deg=h_fov,
+        width_px=width,
+        height_px=height,
+        center=center,
+        eye=eye,
+        up=up
+    )
     
+    # シーンの作成
+    scene = o3d.t.geometry.RaycastingScene()
+    # meshをo3d.tに変換
+    mesh_t = o3d.t.geometry.TriangleMesh.from_legacy(mesh)
+    scene.add_triangles(mesh_t)
+    
+    # レイキャスト
+    result = scene.cast_rays(rays)
+    
+    hit = result["t_hit"].isfinite()
+    points = rays[hit][:,:3] + rays[hit][:,3:]*result["t_hit"][hit].reshape((-1,1))
+    pcd = o3d.t.geometry.PointCloud(points)
+    axis = o3d.geometry.TriangleMesh.create_coordinate_frame(size=10.0, origin=[0,0,0])
 
-# # 2次元の点群データを仮定
-# data = np.array([[1, 2], [2, 3], [3, 4], [4, 5]])
+    o3d.visualization.draw_geometries([pcd.to_legacy(), mesh, axis])
 
-# # 1次関数に近似する
-# x = data[:, 0]
-# y = data[:, 1]
+# main2を踏襲してmeshを生成する
+pcd = generate_point_cloud((-1,1), (-1, 250), (-5, -5), 1000, 0)
+# pcd = generate_point_cloud((1,1), (-1, 250), (-5, -5), 1000, 0.5)
+    
+# 点群データを指向基準で拡張
+grid_points = extend_points(pcd)
+    
+# グリッド点群からメッシュ作成
+mesh = convert_mesh(grid_points)
+# visualize(mesh)
 
-# # 最小二乗法を使用して1次関数に近似
-# coefficients = np.polyfit(x, y, 1)
-# slope = coefficients[0]
+# 生成したメッシュに対して、原点からピンホールのraycastを計算して飛ばす
+calc_pinhole_raycast(mesh)
 
-# # X軸からの角度を計算
-# angle_degrees = np.degrees(np.arctan(slope))
-
-# print(angle_degrees)
-
-
-
-if __name__ == "__main__":
-    execute()
+# 結果を3d表示する
