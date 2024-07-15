@@ -276,6 +276,7 @@ def calc_pinhole_raycast(mesh):
         up=up
     )
     
+    
     # シーンの作成
     scene = o3d.t.geometry.RaycastingScene()
     # meshをo3d.tに変換
@@ -292,20 +293,22 @@ def calc_pinhole_raycast(mesh):
 
     o3d.visualization.draw_geometries([pcd.to_legacy(), mesh, axis])
 
-# main2を踏襲してmeshを生成する
-# pcd = generate_point_cloud((-1,1), (-1, 250), (-5, -5), 1000, 0)
-pcd = generate_point_cloud((1,1), (-1, 250), (-10, -10), 1000, 0.01)
-    
-# 点群データを指向基準で拡張
-grid_points = extend_points(pcd)
-    
-# グリッド点群からメッシュ作成
-mesh = convert_mesh(grid_points)
-# visualize(mesh)
 
-# 生成したメッシュに対して、原点からピンホールのraycastを計算して飛ばす
-calc_pinhole_raycast(mesh)
+if __name__ == "__main__":
+    # main2を踏襲してmeshを生成する
+    # pcd = generate_point_cloud((-1,1), (-1, 250), (-5, -5), 1000, 0)
+    pcd = generate_point_cloud((1,1), (-1, 250), (-10, -10), 1000, 0.01)
+        
+    # 点群データを指向基準で拡張
+    grid_points = extend_points(pcd)
+        
+    # グリッド点群からメッシュ作成
+    mesh = convert_mesh(grid_points)
+    # visualize(mesh)
 
-# 結果を3d表示する
+    # 生成したメッシュに対して、原点からピンホールのraycastを計算して飛ばす
+    calc_pinhole_raycast(mesh)
 
-# ★もし平面にrayしていて、hitしたポイントの使い方を逆向きに使っていたら。。。？
+    # 結果を3d表示する
+
+    # ★もし平面にrayしていて、hitしたポイントの使い方を逆向きに使っていたら。。。？
