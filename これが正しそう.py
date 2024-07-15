@@ -30,6 +30,8 @@ def calculate_unit_vector(u, v, W, H, fov_h, fov_v):
     tan_fov_v_2 = np.tan(np.radians(fov_v) / 2)
     
     # 画素のカメラ座標系における位置を計算
+    # 2 * tan_fov_h_2　⇒　yを1と仮定したときにtan(fov/2)は1に対する画面片側maxの値になる。そこに2をかけて、yを1としたときのw方向の座標値（スクリーン座標ではなく現実座標としている）
+    # /Wによって1ピクセルあたりの現実座標にスケーリングして、中心からの差分を乗算することでx値としている。
     x = (u - W / 2) * 2 * tan_fov_h_2 / W
     z = (v - H / 2) * 2 * tan_fov_v_2 / H
     y = 1  # 奥行き方向の単位長さ
